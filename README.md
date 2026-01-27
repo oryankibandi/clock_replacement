@@ -8,7 +8,7 @@ It is known for it's simplicity and high concurrency compared to LRU, an alterna
 
 CLOCK replacement algorithm utilizes a circular buffer, arranged as a linked list,  with each item containing a reference bit and an access bit, and a clock hand that points to a a node in the linked list.
 
-[circular_buffer](/docs//images/circular_buffer.png)
+![circular_buffer](./docs//images/circular_buffer.png)
 
 Each time a new item needs to be added and the cache is full, the clock hand checks the item it currently points to.
 
