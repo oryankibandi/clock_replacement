@@ -1,0 +1,18 @@
+# build directories
+bin/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Linux
+*~
+
+# Go profiling
+*.prof
+*.pprof
+cpu.out
+mem.out
+trace.out
