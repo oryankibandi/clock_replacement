@@ -14,7 +14,7 @@ func TestMemAlloc(t *testing.T) {
 	var en *entry
 
 	t.Run("allocate_memory", func(t *testing.T) {
-		en = New()
+		en = NewEntry()
 
 		if en == nil {
 			t.Fatal("Memory not allocated.")
@@ -60,7 +60,7 @@ func TestRefAndUnref(t *testing.T) {
 	var en *entry
 
 	t.Run("allocate_memory", func(t *testing.T) {
-		en = New()
+		en = NewEntry()
 
 		if en == nil {
 			t.Fatal("Memory not allocated.")
@@ -113,7 +113,7 @@ func TestRefAndUnrefConcurrent(t *testing.T) {
 	var en *entry
 
 	t.Run("allocate_memory_concurrent", func(t *testing.T) {
-		en = New()
+		en = NewEntry()
 
 		if en == nil {
 			t.Fatal("Memory not allocated.")
