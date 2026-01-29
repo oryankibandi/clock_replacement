@@ -9,11 +9,7 @@ import (
 )
 
 type cache struct {
-	bPool struct {
-		bufferPool []*entry
-		mu         sync.RWMutex
-	}
-
+	bPool pool
 	// hash table mapping item ids to entries. The swiss hash table offers
 	// better performance that  Go's standard map
 	hashTable map[uint32]*entry
@@ -21,6 +17,8 @@ type cache struct {
 
 	// circular buffer
 	cBuffer *clock
+
+	mu sync.RWMutex
 }
 
 type CacheOptions struct {
@@ -28,6 +26,156 @@ type CacheOptions struct {
 	Capacity uint64
 }
 
+type pool struct {
+	bufferPool []*entry
+	mu         sync.RWMutex
+}
+
+// returns an entry from the pool
+func (p *pool) pop() *entry {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if len(p.bufferPool) <= 0 {
+		return nil
+	}
+
+	e := p.bufferPool[len(p.bufferPool)-1]
+	p.bufferPool = append([]*entry{}, p.bufferPool[:len(p.bufferPool)-1]...)
+
+	return e
+}
+
+// Retrieves an entry from cache, If entry doesn't exist
+// return page fault error
+func (c *cache) Get(key uint32) (data *[ENTRY_SIZE]byte, err error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	d, ok := c.hashTable[key]
+
+	if ok {
+		return &d.data, nil
+	}
+
+	return nil, errors.New("Page Fault")
+}
+
+// Add an item to cache. If all slots are occupied, evict an item.
+func (c *cache) Put(key uint32, data [ENTRY_SIZE]byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	existing, ok := c.hashTable[key]
+
+	if ok {
+		// in place update
+		existing.setData(key, data)
+
+		return nil
+	}
+
+	if len(c.hashTable) < int(c.capacity) {
+		// cache not full, add item
+		// get entry from buffer pool
+		e := c.bPool.pop()
+
+		if e == nil {
+			panic("Invalid state. Cache not full but buffer pool is empty")
+		}
+
+		err := e.setData(key, data)
+
+		if err != nil {
+			return err
+		}
+
+		// add to hash table
+		c.hashTable[key] = e
+	} else {
+		// cache full, find item to evict
+		e, evictedKey := c.cBuffer.evict()
+
+		if evictedKey == -1 {
+			// could  not evict
+			slog.Info("Unable to evict key, no suitable entry found")
+			return errors.New("Could not evict key")
+		}
+
+		// delete evicted  entry from hashtable
+		delete(c.hashTable, uint32(evictedKey))
+
+		err := e.setData(key, data)
+
+		if err != nil {
+			return err
+		}
+
+		c.hashTable[key] = e
+	}
+
+	return nil
+}
+
+// removes an item from cache
+func (c *cache) Delete(key uint32) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	ent, ok := c.hashTable[key]
+
+	if !ok {
+		msg := fmt.Sprintf("Entry with key: %d not in set", key)
+		slog.Info(msg)
+		return errors.New(msg)
+	}
+
+	ent.clear()
+	delete(c.hashTable, key)
+
+	// readd entry to buffer pool
+	c.bPool.mu.Lock()
+	c.bPool.bufferPool = append(c.bPool.bufferPool, ent)
+	c.bPool.mu.Unlock()
+
+	return nil
+}
+
+// Clears cache and frees allocated memory. Ensure data in buffers that
+// should be persisted is flushed to disk before calling Close()
+func (c *cache) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var wg sync.WaitGroup
+
+	slog.Info("Freeing buffer memory")
+	for _, e := range c.bPool.bufferPool {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			manual.FreeMem(e.cPtr)
+		}()
+	}
+
+	wg.Wait()
+	slog.Info("Freed unused buffer pool memory")
+
+	for _, v := range c.hashTable {
+		// clear and free memory
+		v.clear()
+		manual.FreeMem(v.cPtr)
+	}
+
+	for k := range c.hashTable {
+		delete(c.hashTable, k)
+	}
+
+	slog.Info("cleared hash table")
+
+	return nil
+}
+
+// creates a new cache of size CacheOptions.Capacity and allocates memory
+// to the buffer pool.
 func NewCache(options CacheOptions) (*cache, error) {
 	if options.Capacity < 3 {
 		return nil, errors.New("Minimum capacity is 3")
@@ -36,7 +184,10 @@ func NewCache(options CacheOptions) (*cache, error) {
 	slog.Info(fmt.Sprintf("Initializing cache with %d items", options.Capacity))
 
 	var wg sync.WaitGroup
-	c := cache{}
+	c := cache{
+		capacity:  options.Capacity,
+		hashTable: make(map[uint32]*entry),
+	}
 
 	slog.Info(fmt.Sprintf("creating %d entries", options.Capacity))
 	for i := uint64(0); i < options.Capacity; i++ {
@@ -55,6 +206,8 @@ func NewCache(options CacheOptions) (*cache, error) {
 
 		}()
 	}
+
+	wg.Wait()
 
 	for i, ent := range c.bPool.bufferPool {
 		if i == 0 {
@@ -81,29 +234,4 @@ func NewCache(options CacheOptions) (*cache, error) {
 	slog.Info("successfully created the circular buffer.")
 
 	return &c, nil
-}
-
-// Clears cache and frees allocated memory. Ensure data in buffers that
-// should be persisted is flushed to disk before calling Close()
-func (c *cache) Close() error {
-	var wg sync.WaitGroup
-
-	slog.Info("Freeing buffer memory")
-	for _, e := range c.bPool.bufferPool {
-		go func() {
-			defer wg.Done()
-			manual.FreeMem(e.cPtr)
-		}()
-	}
-
-	for _, v := range c.hashTable {
-		// free memory
-		manual.FreeMem(v.cPtr)
-	}
-
-	for k := range c.hashTable {
-		delete(c.hashTable, k)
-	}
-
-	return nil
 }

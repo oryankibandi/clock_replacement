@@ -20,7 +20,7 @@ type metadata struct {
 	isDirty atomic.Bool
 
 	// Unique key of the entry. This can be the page block id
-	key uint64
+	key uint32
 }
 
 type entry struct {
@@ -37,7 +37,7 @@ type entry struct {
 	isOccupied atomic.Bool
 	counters   counter
 
-	// size of an entry. Default is 8K
+	// size of an entry. Default is ENTRY_SIZE
 	dataSize uint64
 	meta     metadata
 
@@ -117,17 +117,20 @@ func (e *entry) unsetRef() {
 	e.ref.Store(false)
 }
 
-func (e *entry) setData(data [ENTRY_SIZE]byte) error {
+func (e *entry) setData(key uint32, data [ENTRY_SIZE]byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.data = data
+	e.meta.key = key
 
 	e.isOccupied.Store(true)
+
+	e.markDirty()
 
 	return nil
 }
 
-// zeros out the entry and resets al fields
+// zeros out the entry and resets all fields
 func (e *entry) clear() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -144,7 +147,7 @@ func (e *entry) clear() {
 	e.counters.reset()
 
 	// mark as unallocated
-	e.isOccupied.Store(true)
+	e.isOccupied.Store(false)
 }
 
 // Returns a pointer to new entry
