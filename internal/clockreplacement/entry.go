@@ -1,10 +1,11 @@
 package clock_replacement
 
 import (
-	"clock_replacement_algorithm/internal/manual"
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/oryankibandi/clock_replacement/internal/manual"
 )
 
 const (
@@ -20,7 +21,7 @@ type metadata struct {
 	isDirty atomic.Bool
 
 	// Unique key of the entry. This can be the page block id
-	key uint64
+	key uint32
 }
 
 type entry struct {
@@ -31,10 +32,13 @@ type entry struct {
 	// access bit. set when an entry is accessed(pinned) and unset during unpinning
 	// When this item is set the reference bit cannot be unset. The clock hand will
 	// advance past an entry with it's access bit set
-	acc      atomic.Bool
-	counters counter
+	acc atomic.Bool
 
-	// size of an entry. Default is 8K
+	// if its allocated
+	isOccupied atomic.Bool
+	counters   counter
+
+	// size of an entry. Default is ENTRY_SIZE
 	dataSize uint64
 	meta     metadata
 
@@ -110,15 +114,24 @@ func (e *entry) markClean() {
 	e.meta.isDirty.Store(false)
 }
 
-func (e *entry) setData(data [ENTRY_SIZE]byte) error {
+func (e *entry) unsetRef() {
+	e.ref.Store(false)
+}
+
+func (e *entry) setData(key uint32, data [ENTRY_SIZE]byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.data = data
+	e.meta.key = key
+
+	e.isOccupied.Store(true)
+
+	e.markDirty()
 
 	return nil
 }
 
-// zeros out the entry and resets al fields
+// zeros out the entry and resets all fields
 func (e *entry) clear() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -133,13 +146,16 @@ func (e *entry) clear() {
 	e.meta.key = 0
 
 	e.counters.reset()
+
+	// mark as unallocated
+	e.isOccupied.Store(false)
 }
 
 // Returns a pointer to new entry
 // To reduce pressure on the GC and improve performance, memory is allocated manually via calloc().
 // This memory also needs to be freed after use to avoid memory leaks.
 // In a storage engine's buffer manager, this memory will be initialized at startup and reused as blocks are paged-in and evicted.
-func New() *entry {
+func NewEntry() *entry {
 	p := manual.Alloc(unsafe.Sizeof(entry{}))
 
 	e := (*entry)(p)
