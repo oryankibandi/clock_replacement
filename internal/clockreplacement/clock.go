@@ -44,7 +44,7 @@ func (clk *clock) evict() (evicted *entry, evictedKey int) {
 		} else {
 			// both access bit and reference bit unset, clear and evict
 			eKey := clk.head.meta.key
-			clk.head.clear()
+			// clk.head.clear()
 			e := clk.head
 
 			// advance clock hand

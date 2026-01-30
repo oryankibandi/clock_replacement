@@ -95,29 +95,6 @@ func NewEntry() *entry {
 	return e
 }
 
-//func manual.CurrentRSSBytes() (float64, error) {
-//	f, err := os.Open("/proc/self/statm")
-//	if err != nil {
-//		return 0, err
-//	}
-//	defer f.Close()
-//	scanner := bufio.NewScanner(f)
-//	if !scanner.Scan() {
-//		return 0, scanner.Err()
-//	}
-//	fields := strings.Fields(scanner.Text())
-//	if len(fields) < 2 {
-//		return 0, fmt.Errorf("unexpected statm format")
-//	}
-//	rssPages, err := strconv.ParseUint(fields[1], 10, 64)
-//	if err != nil {
-//		return 0, err
-//	}
-//	pageSize := uint64(syscall.Getpagesize())
-//	rssBytes := rssPages * pageSize
-//	return float64(rssBytes) / 1024.0 / 1024.0, nil
-//}
-
 func main() {
 	iterations := 500
 	buffSizeMB := 24 * (1024 * 1024) // 24MB

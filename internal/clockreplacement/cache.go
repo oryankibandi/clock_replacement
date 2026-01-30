@@ -9,6 +9,11 @@ import (
 	"github.com/oryankibandi/clock_replacement/internal/manual"
 )
 
+type DiskManager interface {
+	FlushToDisk(key uint32, data []byte) error
+	ReadFromDisk(key uint32) (data []byte, err error)
+}
+
 type cache struct {
 	bPool pool
 	// hash table mapping item ids to entries. The swiss hash table offers
@@ -19,12 +24,18 @@ type cache struct {
 	// circular buffer
 	cBuffer *clock
 
+	// disk manager
+	dManager DiskManager
+
 	mu sync.RWMutex
 }
 
 type CacheOptions struct {
 	// amount of items. At least thrree items required to create a circular buffer
 	Capacity uint64
+	// Disk manager implementation. This will be used by the cache to retrieve pages and
+	// flush to disk
+	DManager DiskManager
 }
 
 type pool struct {
@@ -51,14 +62,35 @@ func (p *pool) pop() *entry {
 // return page fault error
 func (c *cache) Get(key uint32) (data *[ENTRY_SIZE]byte, err error) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 
 	d, ok := c.hashTable[key]
 
 	if ok {
+		c.mu.RUnlock()
 		return &d.data, nil
 	}
 
+	if c.dManager != nil {
+		// get page from disk
+		pData, err := c.dManager.ReadFromDisk(key)
+
+		if err != nil {
+			c.mu.RUnlock()
+			return nil, err
+		}
+
+		// add to cache
+		c.mu.RUnlock()
+		err = c.Put(key, [8192]byte(pData))
+
+		if err != nil {
+			return nil, err
+		}
+
+		return (*[8192]byte)(pData), nil
+	}
+
+	c.mu.RUnlock()
 	return nil, errors.New("Page Fault")
 }
 
@@ -102,6 +134,18 @@ func (c *cache) Put(key uint32, data [ENTRY_SIZE]byte) error {
 			return errors.New("Could not evict key")
 		}
 
+		// flush to disk before clearing
+		if c.dManager != nil {
+			err := c.dManager.FlushToDisk(uint32(evictedKey), e.data[:])
+
+			if err != nil {
+				return nil
+			}
+		}
+
+		// clear data in the entry/frame
+		e.clear()
+
 		// delete evicted  entry from hashtable
 		delete(c.hashTable, uint32(evictedKey))
 
@@ -128,6 +172,15 @@ func (c *cache) Delete(key uint32) error {
 		msg := fmt.Sprintf("Entry with key: %d not in set", key)
 		slog.Info(msg)
 		return errors.New(msg)
+	}
+
+	// flush to disk before clearing
+	if c.dManager != nil {
+		err := c.dManager.FlushToDisk(uint32(key), ent.data[:])
+
+		if err != nil {
+			return nil
+		}
 	}
 
 	ent.clear()
