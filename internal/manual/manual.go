@@ -2,10 +2,16 @@ package manual
 
 /*
 #include <stdlib.h>
+#include <malloc.h>
 */
 import "C"
 
 import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"syscall"
 	"unsafe"
 )
 
@@ -23,8 +29,31 @@ func Alloc(size uintptr) unsafe.Pointer {
 // Frees memory pointed to by d
 func FreeMem(d unsafe.Pointer) {
 	if d == nil {
-		return
+		fmt.Println("D is Nil")
+		panic("d is NIL")
+		// return
 	}
 
 	C.free(d)
+	C.malloc_trim(0)
+}
+
+// Retrieves Peak RSS
+func GetRssKB() uint64 {
+	var r syscall.Rusage
+	_ = syscall.Getrusage(syscall.RUSAGE_SELF, &r)
+	return uint64(r.Maxrss)
+}
+
+func CurrentRSSBytes() (uint64, error) {
+	b, err := os.ReadFile("/proc/self/statm")
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(string(b))
+	if len(fields) < 2 {
+		return 0, fmt.Errorf("unexpected statm")
+	}
+	resPages, _ := strconv.ParseUint(fields[1], 10, 64)
+	return resPages * uint64(os.Getpagesize()), nil
 }

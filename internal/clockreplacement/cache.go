@@ -1,11 +1,12 @@
 package clock_replacement
 
 import (
-	"clock_replacement_algorithm/internal/manual"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/oryankibandi/clock_replacement/internal/manual"
 )
 
 type cache struct {

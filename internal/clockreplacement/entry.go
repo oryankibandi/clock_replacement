@@ -1,10 +1,11 @@
 package clock_replacement
 
 import (
-	"clock_replacement_algorithm/internal/manual"
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/oryankibandi/clock_replacement/internal/manual"
 )
 
 const (

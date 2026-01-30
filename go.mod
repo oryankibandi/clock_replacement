@@ -1,4 +1,4 @@
-module clock_replacement_algorithm
+module github.com/oryankibandi/clock_replacement
 
 go 1.24.2
 
