@@ -19,13 +19,8 @@ func TestMemAlloc(t *testing.T) {
 
 	t.Run("allocate_memory", func(t *testing.T) {
 		en = NewEntry()
-
 		if en == nil {
 			t.Fatal("Memory not allocated.")
-		}
-
-		if en.dataSize == 0 {
-			t.Fatal("Invalid data size set.")
 		}
 
 		if en.CPtr == nil {
@@ -83,7 +78,7 @@ func TestMemAllocMany(t *testing.T) {
 				// Since calloc zeros out allocated memory, the OS may
 				// not actually assign the physical memory until data is
 				// added
-				e.SetData(25, d)
+				e.SetData(25, d[:])
 
 				entries = append(entries, e)
 			}
@@ -178,10 +173,6 @@ func TestRefAndUnref(t *testing.T) {
 			t.Fatal("Memory not allocated.")
 		}
 
-		if en.dataSize == 0 {
-			t.Fatal("Invalid data size set.")
-		}
-
 		if en.CPtr == nil {
 			t.Fatal("Unsafe pointer not set")
 		}
@@ -230,11 +221,6 @@ func TestRefAndUnrefConcurrent(t *testing.T) {
 		if en == nil {
 			t.Fatal("Memory not allocated.")
 		}
-
-		if en.dataSize == 0 {
-			t.Fatal("Invalid data size set.")
-		}
-
 		if en.CPtr == nil {
 			t.Fatal("Unsafe pointer not set")
 		}

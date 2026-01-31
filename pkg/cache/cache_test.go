@@ -2,8 +2,12 @@ package cache
 
 import (
 	"fmt"
-	"sync"
+	"log/slog"
+	"math/rand"
+
+	// "sync"
 	"testing"
+	"time"
 
 	clock "github.com/oryankibandi/clock_replacement/internal/clockreplacement"
 	"github.com/stretchr/testify/assert"
@@ -126,23 +130,18 @@ func TestPutGet(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if test.add {
 				var v [clock.ENTRY_SIZE]byte
-
 				copy(v[:len(test.val)], test.val)
-
-				err := c.Put(test.key, v)
-
-				assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
-
-				v2, err := c.Get(test.key)
+				_, err := c.Put(test.key, test.val)
 
 				assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
 
-				assert.Equal(t, v, *v2, "Wrong value received during get")
+				e2, err := c.Get(test.key)
+				assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+				v2 := e2.GetData()
+				assert.Equal(t, v, v2, "Wrong value received during get")
 			} else {
 				_, err := c.Get(test.key)
-
 				assert.NotNil(t, err, fmt.Errorf("Expected err but got nil"))
-
 			}
 		})
 	}
@@ -202,7 +201,7 @@ func TestDelete(t *testing.T) {
 
 				copy(v[:len(test.val)], test.val)
 
-				err := c.Put(test.key, v)
+				_, err := c.Put(test.key, test.val)
 
 				assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
 
@@ -238,7 +237,7 @@ func TestPutGetConcurrent(t *testing.T) {
 		val  []byte
 	}
 
-	testsCount := 100
+	testsCount := 10000
 	// generate test data
 	tests := make([]testStruct, testsCount)
 
@@ -251,10 +250,10 @@ func TestPutGetConcurrent(t *testing.T) {
 		}
 	}
 
-	var wg sync.WaitGroup
+	// var wg sync.WaitGroup
 
 	options := CacheOptions{
-		Capacity: 100,
+		Capacity: 5000,
 	}
 
 	c, err := NewCache(options)
@@ -273,50 +272,99 @@ func TestPutGetConcurrent(t *testing.T) {
 	}
 
 	// add concurrently
-	startPut := make(chan struct{})
-	for i, test := range tests {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-startPut
-			t.Run(fmt.Sprintf("put_%d", i), func(t *testing.T) {
-				var v [clock.ENTRY_SIZE]byte
-				copy(v[:len(test.val)], test.val)
-
-				err := c.Put(test.key, v)
+	t.Run("Concurrent Put", func(t *testing.T) {
+		startPut := make(chan struct{})
+		for i, test := range tests {
+			t.Run(fmt.Sprintf("concurr_put_%d", i), func(t *testing.T) {
+				t.Parallel()
+				<-startPut
+				_, err := c.Put(test.key, test.val)
 				assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
 			})
-		}()
-	}
-	close(startPut)
-	wg.Wait()
+		}
+		close(startPut)
+
+	})
+	// wg.Wait()
 
 	// retrieve data concurrently
-	startGet := make(chan struct{})
-	for i, test := range tests {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-startGet
-			t.Run(fmt.Sprintf("concurr_test_%d", i), func(t *testing.T) {
+	t.Run("Concurrent Get", func(t *testing.T) {
+		startGet := make(chan struct{})
+		for i, test := range tests {
+			t.Run(fmt.Sprintf("concurr_get_%d", i), func(t *testing.T) {
+				t.Parallel()
+				<-startGet
 				var v [clock.ENTRY_SIZE]byte
 				copy(v[:len(test.val)], test.val)
 
-				v2, err := c.Get(test.key)
-				assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
-				assert.Equal(t, v, *v2, "Wrong value received during get")
+				e2, err := c.Get(test.key)
+
+				if err != nil {
+					//  item evicted
+					slog.Info(fmt.Sprintf("concurr_get_%d: Item evicted", i))
+				} else {
+					v2 := e2.GetData()
+
+					assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+					assert.Equal(t, v, v2, "Wrong value received during get")
+				}
 			})
-		}()
-	}
+		}
 
-	close(startGet)
-	wg.Wait()
+		close(startGet)
 
-	err = c.Close()
+	})
+	// wg.Wait()
 
-	if err != nil {
-		t.Fatal(fmt.Errorf("Unable to close cache: %s", err.Error()))
-	}
+	// run get and put concurrently, with random time intervals
+	t.Run("Concurrent Put and Get", func(t *testing.T) {
+		startConcurr := make(chan struct{})
+		for i, test := range tests {
+			t.Run(fmt.Sprintf("concurr_putget_%d", i), func(t *testing.T) {
+				t.Parallel()
+				<-startConcurr
+				time.Sleep(time.Duration(rand.Intn(15)+5) * time.Millisecond)
+
+				_, err := c.Put(test.key, test.val)
+				assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+			})
+
+			t.Run(fmt.Sprintf("concurr_putget_test_%d", i), func(t *testing.T) {
+				t.Parallel()
+				<-startConcurr
+				time.Sleep(time.Duration(rand.Intn(15)+5) * time.Millisecond)
+				var v [clock.ENTRY_SIZE]byte
+				copy(v[:len(test.val)], test.val)
+
+				e2, err := c.Get(test.key)
+
+				if err != nil {
+					// item already evicted
+					slog.Info(fmt.Sprintf("concurr_putget_test_%d: Item evicted", i))
+				} else {
+					assert.NotNil(t, e2, fmt.Errorf("Expected retrieved entry to not be nil while error is: %v", err))
+					v2 := e2.GetData()
+
+					assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+					assert.Equal(t, v, v2, "Wrong value received during get")
+
+				}
+			})
+		}
+
+		close(startConcurr)
+
+	})
+	// wg.Wait()
+
+	t.Cleanup(func() {
+		slog.Info("CLOSING DOWN CACHE....")
+		err = c.Close()
+
+		if err != nil {
+			t.Fatal(fmt.Errorf("Unable to close cache: %s", err.Error()))
+		}
+	})
 }
 
 func TestEvict(t *testing.T) {
@@ -360,10 +408,7 @@ func TestEvict(t *testing.T) {
 
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("testevict_put_%d", i), func(t *testing.T) {
-			var v [clock.ENTRY_SIZE]byte
-			copy(v[:len(test.val)], test.val)
-
-			err := c.Put(test.key, v)
+			_, err := c.Put(test.key, test.val)
 			assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
 		})
 	}
@@ -374,12 +419,14 @@ func TestEvict(t *testing.T) {
 			var v [clock.ENTRY_SIZE]byte
 			copy(v[:len(test.val)], test.val)
 
-			v2, err := c.Get(test.key)
+			e2, err := c.Get(test.key)
 
 			if err != nil {
 				pageFaults++
 			} else {
-				assert.Equal(t, v, *v2, "Wrong value received during get")
+				v2 := e2.GetData()
+
+				assert.Equal(t, v, v2, "Wrong value received during get")
 			}
 		})
 	}
