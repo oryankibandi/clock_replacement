@@ -24,7 +24,7 @@ type metadata struct {
 	key uint32
 }
 
-type entry struct {
+type Entry struct {
 	// reference bit. Set when an item is accessed and unset by clock hand when
 	// looking for an item to evict
 	ref atomic.Bool
@@ -43,16 +43,16 @@ type entry struct {
 	meta     metadata
 
 	// page data
-	data [ENTRY_SIZE]byte
+	Data [ENTRY_SIZE]byte
 
 	// pointers to next aand prev values
 	links struct {
-		next *entry
-		prev *entry
+		next *Entry
+		prev *Entry
 	}
 
 	// unsafe pointer used to free memory
-	cPtr unsafe.Pointer
+	CPtr unsafe.Pointer
 
 	mu sync.Mutex
 }
@@ -81,7 +81,7 @@ func (c *counter) reset() {
 }
 
 // Sets the access bit and ref bit of an entry. Called when accessing an entry
-func (e *entry) reference() {
+func (e *Entry) reference() {
 	e.ref.Store(true)
 	e.acc.Store(true)
 
@@ -89,8 +89,32 @@ func (e *entry) reference() {
 	e.counters.addPinCount()
 }
 
+func (e *Entry) SetNextLink(n *Entry) {
+	if n == nil {
+		panic("invalid nil entry provided.")
+	}
+
+	e.links.next = n
+}
+
+func (e *Entry) SetPrevLink(p *Entry) {
+	if p == nil {
+		panic("invalid nil entry provided.")
+	}
+
+	e.links.prev = p
+}
+
+func (e *Entry) GetNextLink() *Entry {
+	return e.links.next
+}
+
+func (e *Entry) GetPrevLink() *Entry {
+	return e.links.prev
+}
+
 // unreferences an entry. Reduces pin count and if no pins left, unset access bit
-func (e *entry) unreference() {
+func (e *Entry) unreference() {
 	e.counters.addUnpinCount()
 
 	e.mu.Lock()
@@ -106,22 +130,22 @@ func (e *entry) unreference() {
 	e.mu.Unlock()
 }
 
-func (e *entry) markDirty() {
+func (e *Entry) markDirty() {
 	e.meta.isDirty.Store(true)
 }
 
-func (e *entry) markClean() {
+func (e *Entry) markClean() {
 	e.meta.isDirty.Store(false)
 }
 
-func (e *entry) unsetRef() {
+func (e *Entry) unsetRef() {
 	e.ref.Store(false)
 }
 
-func (e *entry) setData(key uint32, data [ENTRY_SIZE]byte) error {
+func (e *Entry) SetData(key uint32, data [ENTRY_SIZE]byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.data = data
+	e.Data = data
 	e.meta.key = key
 
 	e.isOccupied.Store(true)
@@ -132,12 +156,12 @@ func (e *entry) setData(key uint32, data [ENTRY_SIZE]byte) error {
 }
 
 // zeros out the entry and resets all fields
-func (e *entry) clear() {
+func (e *Entry) Clear() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	s := make([]byte, ENTRY_SIZE)
-	copy(e.data[:], s)
+	copy(e.Data[:], s)
 
 	e.ref.Store(false)
 	e.acc.Store(false)
@@ -155,13 +179,13 @@ func (e *entry) clear() {
 // To reduce pressure on the GC and improve performance, memory is allocated manually via calloc().
 // This memory also needs to be freed after use to avoid memory leaks.
 // In a storage engine's buffer manager, this memory will be initialized at startup and reused as blocks are paged-in and evicted.
-func NewEntry() *entry {
-	p := manual.Alloc(unsafe.Sizeof(entry{}))
+func NewEntry() *Entry {
+	p := manual.Alloc(unsafe.Sizeof(Entry{}))
 
-	e := (*entry)(p)
+	e := (*Entry)(p)
 
 	e.dataSize = ENTRY_SIZE
-	e.cPtr = p
+	e.CPtr = p
 
 	return e
 }

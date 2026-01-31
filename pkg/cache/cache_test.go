@@ -1,10 +1,11 @@
-package clock_replacement
+package cache
 
 import (
 	"fmt"
 	"sync"
 	"testing"
 
+	clock "github.com/oryankibandi/clock_replacement/internal/clockreplacement"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -62,11 +63,11 @@ func TestNewCache(t *testing.T) {
 
 				// ensure entries are linked
 				for i := range test.cacheSize {
-					if c.cBuffer.head.links.next == nil {
+					if c.cBuffer.Head.GetNextLink() == nil {
 						t.Fatal(fmt.Errorf("%d item not linked in circular buffer", i+1))
 					}
 
-					c.cBuffer.head = c.cBuffer.head.links.next
+					c.cBuffer.Head = c.cBuffer.Head.GetNextLink()
 				}
 
 				err = c.Close()
@@ -124,7 +125,7 @@ func TestPutGet(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if test.add {
-				var v [ENTRY_SIZE]byte
+				var v [clock.ENTRY_SIZE]byte
 
 				copy(v[:len(test.val)], test.val)
 
@@ -197,7 +198,7 @@ func TestDelete(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if test.add {
-				var v [ENTRY_SIZE]byte
+				var v [clock.ENTRY_SIZE]byte
 
 				copy(v[:len(test.val)], test.val)
 
@@ -279,7 +280,7 @@ func TestPutGetConcurrent(t *testing.T) {
 			defer wg.Done()
 			<-startPut
 			t.Run(fmt.Sprintf("put_%d", i), func(t *testing.T) {
-				var v [ENTRY_SIZE]byte
+				var v [clock.ENTRY_SIZE]byte
 				copy(v[:len(test.val)], test.val)
 
 				err := c.Put(test.key, v)
@@ -298,7 +299,7 @@ func TestPutGetConcurrent(t *testing.T) {
 			defer wg.Done()
 			<-startGet
 			t.Run(fmt.Sprintf("concurr_test_%d", i), func(t *testing.T) {
-				var v [ENTRY_SIZE]byte
+				var v [clock.ENTRY_SIZE]byte
 				copy(v[:len(test.val)], test.val)
 
 				v2, err := c.Get(test.key)
@@ -359,7 +360,7 @@ func TestEvict(t *testing.T) {
 
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("testevict_put_%d", i), func(t *testing.T) {
-			var v [ENTRY_SIZE]byte
+			var v [clock.ENTRY_SIZE]byte
 			copy(v[:len(test.val)], test.val)
 
 			err := c.Put(test.key, v)
@@ -370,7 +371,7 @@ func TestEvict(t *testing.T) {
 	pageFaults := 0
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("testevict_get_%d", i), func(t *testing.T) {
-			var v [ENTRY_SIZE]byte
+			var v [clock.ENTRY_SIZE]byte
 			copy(v[:len(test.val)], test.val)
 
 			v2, err := c.Get(test.key)

@@ -15,7 +15,7 @@ import (
 
 func TestMemAlloc(t *testing.T) {
 	// t.Parallel()
-	var en *entry
+	var en *Entry
 
 	t.Run("allocate_memory", func(t *testing.T) {
 		en = NewEntry()
@@ -28,13 +28,13 @@ func TestMemAlloc(t *testing.T) {
 			t.Fatal("Invalid data size set.")
 		}
 
-		if en.cPtr == nil {
+		if en.CPtr == nil {
 			t.Fatal("Unsafe pointer not set")
 		}
 	})
 
 	t.Run("free memory", func(t *testing.T) {
-		manual.FreeMem(en.cPtr)
+		manual.FreeMem(en.CPtr)
 
 		en = nil
 
@@ -47,14 +47,14 @@ func TestMemAlloc(t *testing.T) {
 func TestMemAllocMany(t *testing.T) {
 	iterations := 5
 	buffSizeMB := 24 * (1024 * 1024) // 24MB
-	entrySize := unsafe.Sizeof(entry{})
+	entrySize := unsafe.Sizeof(Entry{})
 	entryCount := buffSizeMB / int(entrySize)
 
-	var entries []*entry
+	var entries []*Entry
 	var m runtime.MemStats
-	var e *entry
+	var e *Entry
 
-	// entrySize := unsafe.Sizeof(entry{})
+	// entrySize := unsafe.Sizeof(Entry{})
 	// pSize := os.Getpagesize()
 
 	var d [ENTRY_SIZE]byte
@@ -83,7 +83,7 @@ func TestMemAllocMany(t *testing.T) {
 				// Since calloc zeros out allocated memory, the OS may
 				// not actually assign the physical memory until data is
 				// added
-				e.setData(25, d)
+				e.SetData(25, d)
 
 				entries = append(entries, e)
 			}
@@ -169,7 +169,7 @@ func TestRefAndUnref(t *testing.T) {
 		{operation: "unreference", expectedPinCount: 3, expectedUnpinCount: 3, expectedAccBit: false, expectedRefBit: true},
 	}
 
-	var en *entry
+	var en *Entry
 
 	t.Run("allocate_memory", func(t *testing.T) {
 		en = NewEntry()
@@ -182,7 +182,7 @@ func TestRefAndUnref(t *testing.T) {
 			t.Fatal("Invalid data size set.")
 		}
 
-		if en.cPtr == nil {
+		if en.CPtr == nil {
 			t.Fatal("Unsafe pointer not set")
 		}
 	})
@@ -201,7 +201,7 @@ func TestRefAndUnref(t *testing.T) {
 		})
 	}
 
-	manual.FreeMem(en.cPtr)
+	manual.FreeMem(en.CPtr)
 	en = nil
 }
 
@@ -222,7 +222,7 @@ func TestRefAndUnrefConcurrent(t *testing.T) {
 		}
 	}
 
-	var en *entry
+	var en *Entry
 
 	t.Run("allocate_memory_concurrent", func(t *testing.T) {
 		en = NewEntry()
@@ -235,7 +235,7 @@ func TestRefAndUnrefConcurrent(t *testing.T) {
 			t.Fatal("Invalid data size set.")
 		}
 
-		if en.cPtr == nil {
+		if en.CPtr == nil {
 			t.Fatal("Unsafe pointer not set")
 		}
 	})
@@ -262,6 +262,6 @@ func TestRefAndUnrefConcurrent(t *testing.T) {
 	close(start)
 
 	wg.Wait()
-	manual.FreeMem(en.cPtr)
+	manual.FreeMem(en.CPtr)
 	en = nil
 }
