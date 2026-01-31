@@ -1,6 +1,7 @@
 package clock_replacement
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -9,7 +10,7 @@ import (
 )
 
 const (
-	ENTRY_SIZE uint64 = 8192
+	ENTRY_SIZE uint64 = 8192 // 8K
 )
 
 type counter struct {
@@ -37,10 +38,7 @@ type Entry struct {
 	// if its allocated
 	isOccupied atomic.Bool
 	counters   counter
-
-	// size of an entry. Default is ENTRY_SIZE
-	dataSize uint64
-	meta     metadata
+	meta       metadata
 
 	// page data
 	Data [ENTRY_SIZE]byte
@@ -54,7 +52,7 @@ type Entry struct {
 	// unsafe pointer used to free memory
 	CPtr unsafe.Pointer
 
-	mu sync.Mutex
+	mu sync.RWMutex
 }
 
 func (c *counter) addPinCount() {
@@ -142,10 +140,18 @@ func (e *Entry) unsetRef() {
 	e.ref.Store(false)
 }
 
-func (e *Entry) SetData(key uint32, data [ENTRY_SIZE]byte) error {
+func (e *Entry) SetData(key uint32, data []byte) error {
+	if len(data) > int(ENTRY_SIZE) {
+		return fmt.Errorf("Data of size %d exceeds set size %d", len(data), ENTRY_SIZE)
+	}
+
+	var formatted [ENTRY_SIZE]byte
+	copy(formatted[:], data)
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.Data = data
+
+	e.Data = formatted
 	e.meta.key = key
 
 	e.isOccupied.Store(true)
@@ -153,6 +159,17 @@ func (e *Entry) SetData(key uint32, data [ENTRY_SIZE]byte) error {
 	e.markDirty()
 
 	return nil
+}
+
+func (e *Entry) GetData() [ENTRY_SIZE]byte {
+	var d [ENTRY_SIZE]byte
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	copy(d[:], e.Data[:])
+
+	return d
 }
 
 // zeros out the entry and resets all fields
@@ -184,7 +201,6 @@ func NewEntry() *Entry {
 
 	e := (*Entry)(p)
 
-	e.dataSize = ENTRY_SIZE
 	e.CPtr = p
 
 	return e

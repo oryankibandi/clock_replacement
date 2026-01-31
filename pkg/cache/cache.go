@@ -61,14 +61,14 @@ func (p *pool) pop() *clock.Entry {
 
 // Retrieves an entry from cache, If entry doesn't exist
 // return page fault error
-func (c *cache) Get(key uint32) (data *[clock.ENTRY_SIZE]byte, err error) {
+func (c *cache) Get(key uint32) (data *clock.Entry, err error) {
 	c.mu.RLock()
 
 	d, ok := c.hashTable[key]
 
 	if ok {
 		c.mu.RUnlock()
-		return &d.Data, nil
+		return d, nil
 	}
 
 	if c.dManager != nil {
@@ -82,13 +82,13 @@ func (c *cache) Get(key uint32) (data *[clock.ENTRY_SIZE]byte, err error) {
 
 		// add to cache
 		c.mu.RUnlock()
-		err = c.Put(key, [8192]byte(pData))
+		newEntr, err := c.Put(key, pData)
 
 		if err != nil {
 			return nil, err
 		}
 
-		return (*[8192]byte)(pData), nil
+		return newEntr, nil
 	}
 
 	c.mu.RUnlock()
@@ -96,16 +96,21 @@ func (c *cache) Get(key uint32) (data *[clock.ENTRY_SIZE]byte, err error) {
 }
 
 // Add an item to cache. If all slots are occupied, evict an item.
-func (c *cache) Put(key uint32, data [clock.ENTRY_SIZE]byte) error {
+func (c *cache) Put(key uint32, data []byte) (*clock.Entry, error) {
+	if len(data) > int(clock.ENTRY_SIZE) {
+		return nil, fmt.Errorf("Data size exceeds set size of %d", clock.ENTRY_SIZE)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	existing, ok := c.hashTable[key]
 
 	if ok {
 		// in place update
 		existing.SetData(key, data)
 
-		return nil
+		return existing, nil
 	}
 
 	if len(c.hashTable) < int(c.capacity) {
@@ -120,11 +125,13 @@ func (c *cache) Put(key uint32, data [clock.ENTRY_SIZE]byte) error {
 		err := e.SetData(key, data)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// add to hash table
 		c.hashTable[key] = e
+
+		return e, nil
 	} else {
 		// cache full, find item to evict
 		e, evictedKey := c.cBuffer.Evict()
@@ -132,7 +139,7 @@ func (c *cache) Put(key uint32, data [clock.ENTRY_SIZE]byte) error {
 		if evictedKey == -1 {
 			// could  not evict
 			slog.Info("Unable to evict key, no suitable entry found")
-			return errors.New("Could not evict key")
+			return nil, errors.New("Could not evict key")
 		}
 
 		// flush to disk before clearing
@@ -140,7 +147,7 @@ func (c *cache) Put(key uint32, data [clock.ENTRY_SIZE]byte) error {
 			err := c.dManager.FlushToDisk(uint32(evictedKey), e.Data[:])
 
 			if err != nil {
-				return nil
+				return nil, err
 			}
 		}
 
@@ -153,13 +160,13 @@ func (c *cache) Put(key uint32, data [clock.ENTRY_SIZE]byte) error {
 		err := e.SetData(key, data)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		c.hashTable[key] = e
-	}
 
-	return nil
+		return e, nil
+	}
 }
 
 // removes an item from cache
