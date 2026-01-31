@@ -12,9 +12,9 @@ const (
 	MAX_LOOP = 25
 )
 
-type clock struct {
+type Clock struct {
 	// entry that the clock hand points to
-	head *entry
+	Head *Entry
 
 	capacity uint64
 	mu       sync.RWMutex
@@ -24,31 +24,31 @@ type clock struct {
 // clears the entry. Returns evicted entry and it's  key.
 // If no suitable entry is found after MAX_LOOP return nil entry
 // and -1 as evictedKey
-func (clk *clock) evict() (evicted *entry, evictedKey int) {
+func (clk *Clock) Evict() (evicted *Entry, evictedKey int) {
 	start := time.Now()
 	clk.mu.Lock()
 	defer clk.mu.Unlock()
 
 	for i := 0; i < int(clk.capacity)*MAX_LOOP; i++ {
-		if clk.head.acc.Load() {
+		if clk.Head.acc.Load() {
 			// access bit set, advance clock hand
-			clk.head = clk.head.links.next
+			clk.Head = clk.Head.links.next
 			continue
 		}
 
-		if clk.head.ref.Load() {
+		if clk.Head.ref.Load() {
 			// ref bit set, unset it
-			clk.head.unsetRef()
+			clk.Head.unsetRef()
 
-			clk.head = clk.head.links.next
+			clk.Head = clk.Head.links.next
 		} else {
 			// both access bit and reference bit unset, clear and evict
-			eKey := clk.head.meta.key
-			clk.head.clear()
-			e := clk.head
+			eKey := clk.Head.meta.key
+			// clk.Head.clear()
+			e := clk.Head
 
 			// advance clock hand
-			clk.head = clk.head.links.next
+			clk.Head = clk.Head.links.next
 
 			end := time.Since(start)
 			slog.Info(fmt.Sprintf("Evicted in  %v", end))
@@ -63,9 +63,9 @@ func (clk *clock) evict() (evicted *entry, evictedKey int) {
 }
 
 // Returns a pointer to a new circular buffer
-func NewClock(head *entry, itemCount uint64) *clock {
-	clk := &clock{
-		head:     head,
+func NewClock(Head *Entry, itemCount uint64) *Clock {
+	clk := &Clock{
+		Head:     Head,
 		capacity: itemCount,
 	}
 
