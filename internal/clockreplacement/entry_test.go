@@ -147,6 +147,124 @@ func TestMemAllocMany(t *testing.T) {
 
 }
 
+func TestSetData(t *testing.T) {
+	var en *Entry
+
+	en = NewEntry()
+	if en == nil {
+		t.Fatal("Memory not allocated.")
+	}
+
+	if en.CPtr == nil {
+		t.Fatal("Unsafe pointer not set")
+	}
+
+	var d [ENTRY_SIZE]byte
+
+	for i := range ENTRY_SIZE {
+		d[i] = 1
+	}
+
+	key := uint32(25)
+	t.Run("set_data", func(t *testing.T) {
+		err := en.SetData(key, d[:])
+		assert.Nilf(t, err, "Expected no error, got  %v", err)
+
+		d2 := en.GetData()
+		assert.Equalf(t, d, d2, "Expected equal data during setData()")
+
+		// check key
+		k := en.getKey()
+		assert.Equalf(t, key, k, "Expected key to be %d, got %d", key, k)
+	})
+
+	t.Cleanup(func() {
+		manual.FreeMem(en.CPtr)
+
+		en = nil
+
+		if en != nil {
+			t.Fatal(fmt.Errorf("Memory not freed: %v\n", en))
+		}
+	})
+}
+
+func TestUpdateData(t *testing.T) {
+	var en *Entry
+
+	en = NewEntry()
+	if en == nil {
+		t.Fatal("Memory not allocated.")
+	}
+
+	if en.CPtr == nil {
+		t.Fatal("Unsafe pointer not set")
+	}
+
+	var d [ENTRY_SIZE]byte
+
+	key := uint32(25)
+	err := en.SetData(key, d[:])
+
+	assert.Nilf(t, err, "Expected no error, got  %s", err)
+
+	for i := range ENTRY_SIZE {
+		d[i] = 1
+	}
+
+	t.Run("update_data", func(t *testing.T) {
+		err := en.UpdateData(d[:])
+		assert.Nilf(t, err, "Expected no error, got  %s", err)
+
+		d2 := en.GetData()
+		assert.Equalf(t, d, d2, "Expected equal data during setData()")
+	})
+
+	t.Cleanup(func() {
+		manual.FreeMem(en.CPtr)
+
+		en = nil
+
+		if en != nil {
+			t.Fatal(fmt.Errorf("Memory not freed: %v\n", en))
+		}
+	})
+}
+
+func TestClear(t *testing.T) {
+	var en *Entry
+
+	en = NewEntry()
+	if en == nil {
+		t.Fatal("Memory not allocated.")
+	}
+
+	if en.CPtr == nil {
+		t.Fatal("Unsafe pointer not set")
+	}
+
+	var d [ENTRY_SIZE]byte
+	key := uint32(25)
+
+	for i := range ENTRY_SIZE {
+		d[i] = 1
+	}
+
+	en.SetData(key, d[:])
+
+	t.Run("clear", func(t *testing.T) {
+		en.Clear()
+
+		d2 := en.GetData()
+		assert.NotEqualf(t, d2, d, "Data not cleared")
+
+		k := en.getKey()
+		assert.NotEqualf(t, k, key, "Key not cleared")
+		assert.Equalf(t, k, uint32(0), "Expected 0, got %d", k)
+	})
+
+}
+
 func TestRefAndUnref(t *testing.T) {
 	// t.Parallel()
 	tests := []struct {
@@ -181,7 +299,7 @@ func TestRefAndUnref(t *testing.T) {
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("test_reference_%d", i), func(t *testing.T) {
 			if test.operation == "reference" {
-				en.reference()
+				en.Reference()
 
 				// check ref bit, acess bit and pin count
 				assert.Equal(t, test.expectedAccBit, en.acc.Load(), "access bit not set")
@@ -234,7 +352,7 @@ func TestRefAndUnrefConcurrent(t *testing.T) {
 			<-start
 			t.Run(fmt.Sprintf("test_concurrent_%d", i), func(t *testing.T) {
 				if test.operation == "reference" {
-					en.reference()
+					en.Reference()
 
 					// check ref bit
 					assert.Equal(t, true, en.ref.Load(), "reference bit not set")

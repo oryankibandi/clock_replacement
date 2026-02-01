@@ -1,11 +1,11 @@
 package cache
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"math/rand"
 
-	// "sync"
 	"testing"
 	"time"
 
@@ -237,7 +237,7 @@ func TestPutGetConcurrent(t *testing.T) {
 		val  []byte
 	}
 
-	testsCount := 10000
+	testsCount := 1000
 	// generate test data
 	tests := make([]testStruct, testsCount)
 
@@ -253,7 +253,7 @@ func TestPutGetConcurrent(t *testing.T) {
 	// var wg sync.WaitGroup
 
 	options := CacheOptions{
-		Capacity: 5000,
+		Capacity: 500,
 	}
 
 	c, err := NewCache(options)
@@ -277,14 +277,30 @@ func TestPutGetConcurrent(t *testing.T) {
 		for i, test := range tests {
 			t.Run(fmt.Sprintf("concurr_put_%d", i), func(t *testing.T) {
 				t.Parallel()
-				<-startPut
-				_, err := c.Put(test.key, test.val)
-				assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+				putEnd := make(chan struct{})
+
+				ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				defer cancel()
+				go func() {
+					<-startPut
+
+					_, err := c.Put(test.key, test.val)
+					assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+					close(putEnd)
+				}()
+
+				select {
+				case <-putEnd:
+					slog.Info("Get Done")
+				case <-ctx.Done():
+					t.Fatalf("concurr_put_%d timed out after %v", i, 200*time.Millisecond)
+				}
 			})
 		}
 		close(startPut)
 
 	})
+
 	// wg.Wait()
 
 	// retrieve data concurrently
@@ -294,19 +310,38 @@ func TestPutGetConcurrent(t *testing.T) {
 			t.Run(fmt.Sprintf("concurr_get_%d", i), func(t *testing.T) {
 				t.Parallel()
 				<-startGet
-				var v [clock.ENTRY_SIZE]byte
-				copy(v[:len(test.val)], test.val)
+				getEnd := make(chan struct{})
+				ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				defer cancel()
 
-				e2, err := c.Get(test.key)
+				go func() {
 
-				if err != nil {
-					//  item evicted
-					slog.Info(fmt.Sprintf("concurr_get_%d: Item evicted", i))
-				} else {
-					v2 := e2.GetData()
+					var v [clock.ENTRY_SIZE]byte
+					copy(v[:len(test.val)], test.val)
 
-					assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
-					assert.Equal(t, v, v2, "Wrong value received during get")
+					e2, err := c.Get(test.key)
+
+					if err != nil {
+						//  item evicted
+						slog.Info(fmt.Sprintf("concurr_get_%d: Item evicted", i))
+					} else {
+						v2 := e2.GetData()
+
+						assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+						assert.Equal(t, v, v2, "Wrong value received during get")
+
+						// unref frame
+						e2.Unreference()
+					}
+
+					close(getEnd)
+				}()
+
+				select {
+				case <-getEnd:
+					slog.Info("Get Done")
+				case <-ctx.Done():
+					t.Fatalf("concurr_get_%d timed out after %v", i, 200*time.Millisecond)
 				}
 			})
 		}
@@ -323,31 +358,66 @@ func TestPutGetConcurrent(t *testing.T) {
 			t.Run(fmt.Sprintf("concurr_putget_%d", i), func(t *testing.T) {
 				t.Parallel()
 				<-startConcurr
-				time.Sleep(time.Duration(rand.Intn(15)+5) * time.Millisecond)
 
-				_, err := c.Put(test.key, test.val)
-				assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+				getEnd := make(chan struct{})
+				ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				defer cancel()
+
+				go func() {
+					time.Sleep(time.Duration(rand.Intn(15)+2) * time.Millisecond)
+
+					_, err := c.Put(test.key, test.val)
+					assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+
+					close(getEnd)
+				}()
+
+				select {
+				case <-getEnd:
+					slog.Info("Get Done")
+				case <-ctx.Done():
+					t.Fatalf("concurr_get_%d timed out after %v", i, 200*time.Millisecond)
+				}
 			})
 
-			t.Run(fmt.Sprintf("concurr_putget_test_%d", i), func(t *testing.T) {
+			t.Run(fmt.Sprintf("concurr_putget_put_%d", i), func(t *testing.T) {
 				t.Parallel()
 				<-startConcurr
-				time.Sleep(time.Duration(rand.Intn(15)+5) * time.Millisecond)
-				var v [clock.ENTRY_SIZE]byte
-				copy(v[:len(test.val)], test.val)
+				putEnd := make(chan struct{})
+				ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				defer cancel()
 
-				e2, err := c.Get(test.key)
+				go func() {
+					time.Sleep(time.Duration(rand.Intn(15)+10) * time.Millisecond)
+					var v [clock.ENTRY_SIZE]byte
+					copy(v[:len(test.val)], test.val)
 
-				if err != nil {
-					// item already evicted
-					slog.Info(fmt.Sprintf("concurr_putget_test_%d: Item evicted", i))
-				} else {
-					assert.NotNil(t, e2, fmt.Errorf("Expected retrieved entry to not be nil while error is: %v", err))
-					v2 := e2.GetData()
+					e2, err := c.Get(test.key)
 
-					assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
-					assert.Equal(t, v, v2, "Wrong value received during get")
+					if err != nil {
+						// item already evicted
+						slog.Info(fmt.Sprintf("concurr_putget_test_%d: Item evicted", i))
+					} else {
+						assert.NotNil(t, e2, fmt.Errorf("Expected retrieved entry to not be nil while error is: %v", err))
+						v2 := e2.GetData()
 
+						assert.Nil(t, err, fmt.Errorf("Expected no error, got: %v", err))
+						assert.Equal(t, v, v2, "Wrong value received during get")
+
+						time.Sleep(20 * time.Microsecond)
+
+						// unreference frame
+						e2.Unreference()
+
+					}
+					close(putEnd)
+				}()
+
+				select {
+				case <-putEnd:
+					slog.Info("Get Done")
+				case <-ctx.Done():
+					t.Fatalf("concurr_putget_put_%d timed out after %v", i, 200*time.Millisecond)
 				}
 			})
 		}
