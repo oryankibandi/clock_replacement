@@ -1,4 +1,4 @@
-# CLOCK Replacement Algorithm - In Progress
+# CLOCK Replacement Algorithm
 
 This is an implementation of the CLOCK replacement algorithm popularly used in storage engines and databases such as PostgreSQL.
 
