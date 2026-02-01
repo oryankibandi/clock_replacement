@@ -67,6 +67,8 @@ func (c *cache) Get(key uint32) (data *clock.Entry, err error) {
 	d, ok := c.hashTable[key]
 
 	if ok {
+		// et reference bit
+		d.Reference()
 		c.mu.RUnlock()
 		return d, nil
 	}
@@ -88,6 +90,7 @@ func (c *cache) Get(key uint32) (data *clock.Entry, err error) {
 			return nil, err
 		}
 
+		newEntr.Reference()
 		return newEntr, nil
 	}
 
@@ -108,7 +111,7 @@ func (c *cache) Put(key uint32, data []byte) (*clock.Entry, error) {
 
 	if ok {
 		// in place update
-		existing.SetData(key, data)
+		existing.UpdateData(data)
 
 		return existing, nil
 	}

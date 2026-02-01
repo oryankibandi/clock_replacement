@@ -30,25 +30,25 @@ func (clk *Clock) Evict() (evicted *Entry, evictedKey int) {
 	defer clk.mu.Unlock()
 
 	for i := 0; i < int(clk.capacity)*MAX_LOOP; i++ {
-		if clk.Head.acc.Load() {
+		if clk.Head.accessBitSet() {
 			// access bit set, advance clock hand
-			clk.Head = clk.Head.links.next
+			clk.Head = clk.Head.GetNextLink()
 			continue
 		}
 
-		if clk.Head.ref.Load() {
+		if clk.Head.refBitSet() {
 			// ref bit set, unset it
 			clk.Head.unsetRef()
 
-			clk.Head = clk.Head.links.next
+			clk.Head = clk.Head.GetNextLink()
 		} else {
 			// both access bit and reference bit unset, clear and evict
-			eKey := clk.Head.meta.key
+			eKey := clk.Head.getKey()
 			// clk.Head.clear()
 			e := clk.Head
 
 			// advance clock hand
-			clk.Head = clk.Head.links.next
+			clk.Head = clk.Head.GetNextLink()
 
 			end := time.Since(start)
 			slog.Info(fmt.Sprintf("Evicted in  %v", end))

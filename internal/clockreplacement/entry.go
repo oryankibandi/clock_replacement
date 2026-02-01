@@ -2,6 +2,7 @@ package clock_replacement
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -78,8 +79,11 @@ func (c *counter) reset() {
 	c.unpinCount.Store(0)
 }
 
-// Sets the access bit and ref bit of an entry. Called when accessing an entry
-func (e *Entry) reference() {
+// Sets the access bit and ref bit of an entry. Called when accessing an entry.
+// The process that uses the entry data is required to call Unreference() when done
+func (e *Entry) Reference() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.ref.Store(true)
 	e.acc.Store(true)
 
@@ -111,8 +115,8 @@ func (e *Entry) GetPrevLink() *Entry {
 	return e.links.prev
 }
 
-// unreferences an entry. Reduces pin count and if no pins left, unset access bit
-func (e *Entry) unreference() {
+// unreferences an entry. Reduces pin count and if no pins left, unsets access bit.
+func (e *Entry) Unreference() {
 	e.counters.addUnpinCount()
 
 	e.mu.Lock()
@@ -128,20 +132,36 @@ func (e *Entry) unreference() {
 	e.mu.Unlock()
 }
 
-func (e *Entry) markDirty() {
+// Returns true if access bit is set, else false
+func (e *Entry) accessBitSet() bool {
+	return e.acc.Load()
+}
+
+// Returns true if access bit is set, else false
+func (e *Entry) refBitSet() bool {
+	return e.ref.Load()
+}
+
+// Mark an entry/frame as dirty
+func (e *Entry) MarkDirty() {
 	e.meta.isDirty.Store(true)
 }
 
-func (e *Entry) markClean() {
+// Mark an entry/frame as clean
+func (e *Entry) MarkClean() {
 	e.meta.isDirty.Store(false)
 }
 
+// Unsets the reference bit. This is exclusively called by the clock replacement algorithm.
 func (e *Entry) unsetRef() {
 	e.ref.Store(false)
 }
 
+// Sets an entry's byte data.
 func (e *Entry) SetData(key uint32, data []byte) error {
 	if len(data) > int(ENTRY_SIZE) {
+		msg := fmt.Sprintf("Data of size %d exceeds set size %d", len(data), ENTRY_SIZE)
+		slog.Error(msg)
 		return fmt.Errorf("Data of size %d exceeds set size %d", len(data), ENTRY_SIZE)
 	}
 
@@ -153,12 +173,33 @@ func (e *Entry) SetData(key uint32, data []byte) error {
 
 	e.Data = formatted
 	e.meta.key = key
-
 	e.isOccupied.Store(true)
 
-	e.markDirty()
+	return nil
+}
+
+func (e *Entry) UpdateData(data []byte) error {
+	if len(data) > int(ENTRY_SIZE) {
+		return fmt.Errorf("Data of size %d exceeds set size %d", len(data), ENTRY_SIZE)
+	}
+
+	var formatted [ENTRY_SIZE]byte
+	copy(formatted[:], data)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.Data = formatted
+	e.MarkDirty()
 
 	return nil
+}
+
+func (e *Entry) getKey() uint32 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return e.meta.key
 }
 
 func (e *Entry) GetData() [ENTRY_SIZE]byte {
